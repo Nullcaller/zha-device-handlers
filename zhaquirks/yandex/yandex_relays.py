@@ -1,10 +1,12 @@
 """Support for YNDX-00537 and YNDX-00538 single-channel and dual-channel relays."""
 
-from typing import Final
+from typing import Any, Final
 
 from zigpy.profiles import zha
-from zigpy.quirks import CustomCluster, CustomDevice
-from zigpy.zcl.clusters.general import Basic, Identify, OnOff, Ota
+from zigpy.quirks import CustomCluster
+from zigpy.quirks.v2 import QuirkBuilder
+from zigpy.zcl import ClusterType
+from zigpy.zcl.clusters.general import Basic, Identify, OnOff
 from zigpy.zcl.foundation import (
     BaseAttributeDefs,
     BaseCommandDefs,
@@ -19,15 +21,9 @@ from zhaquirks.const import (
     COMMAND_OFF,
     COMMAND_ON,
     COMMAND_TOGGLE,
-    DEVICE_TYPE,
     DOUBLE_PRESS,
     ENDPOINT_ID,
-    ENDPOINTS,
-    INPUT_CLUSTERS,
     LONG_PRESS,
-    MODELS_INFO,
-    OUTPUT_CLUSTERS,
-    PROFILE_ID,
     SHORT_PRESS,
 )
 from zhaquirks.yandex import (
@@ -86,191 +82,173 @@ class YandexSwitchClusterRelay(CustomCluster):
             is_manufacturer_specific=True,
         )
 
+    async def write_attributes(
+        self, attributes: dict[str | int, Any], manufacturer: int | None = None
+    ) -> list:
+        """Write attributes using commands because manufacturer-specific attribute writing is unsupported by Yandex devices."""
 
-class YandexSingleRelay(CustomDevice):
-    """YNDX-00537 single-channel relay."""
+        result = []
+        remaining_attributes = attributes.copy()
 
-    signature = {
-        MODELS_INFO: [(YANDEX, "YNDX-00537")],
-        ENDPOINTS: {
-            # <SimpleDescriptor endpoint=1 profile=260 device_type=256
-            # device_version=0
-            # input_clusters=[0, 3, 6, 64515]
-            # output_clusters=[25]>
-            1: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zha.DeviceType.ON_OFF_LIGHT,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                    OnOff.cluster_id,
-                    YandexSwitchClusterRelay.cluster_id,
-                ],
-                OUTPUT_CLUSTERS: [Ota.cluster_id],
-            },
-        },
-    }
+        if "switch_type" in attributes:
+            remaining_attributes.pop("switch_type")
+            result += await self.command(0x02, attributes.get("switch_type"))
+        if 0x0002 in attributes:
+            remaining_attributes.pop(0x0002)
+            result += await self.command(0x02, attributes.get(0x0002))
+        if "power_type" in attributes:
+            remaining_attributes.pop("power_type")
+            result += await self.command(0x03, attributes.get("power_type"))
+        if 0x0003 in attributes:
+            remaining_attributes.pop(0x0003)
+            result += await self.command(0x03, attributes.get(0x0003))
+        if "interlock" in attributes:
+            remaining_attributes.pop("interlock")
+            result += await self.command(0x07, attributes.get("interlock"))
+        if 0x0007 in attributes:
+            remaining_attributes.pop(0x0007)
+            result += await self.command(0x07, attributes.get(0x0007))
 
-    replacement = {
-        ENDPOINTS: {
-            1: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zha.DeviceType.ON_OFF_LIGHT,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                    OnOff.cluster_id,
-                    YandexSwitchClusterRelay,
-                ],
-                OUTPUT_CLUSTERS: [Ota.cluster_id],
-            },
-            # Button (decoupled)
-            2: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zha.DeviceType.ON_OFF_LIGHT_SWITCH,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                ],
-                OUTPUT_CLUSTERS: [Identify.cluster_id, OnOff.cluster_id],
-            },
-        },
-    }
+        if remaining_attributes:
+            result += await super().write_attributes(remaining_attributes, manufacturer)
 
-    device_automation_triggers = {
-        (SHORT_PRESS, "Button"): {
-            COMMAND: COMMAND_TOGGLE,
-            CLUSTER_ID: OnOff.cluster_id,
-            ENDPOINT_ID: 2,
-        },
-        (DOUBLE_PRESS, "Button"): {
-            COMMAND: COMMAND_ON,
-            CLUSTER_ID: OnOff.cluster_id,
-            ENDPOINT_ID: 2,
-        },
-        (LONG_PRESS, "Button"): {
-            COMMAND: COMMAND_OFF,
-            CLUSTER_ID: OnOff.cluster_id,
-            ENDPOINT_ID: 2,
-        },
-    }
+        return result
 
 
-class YandexDualRelay(CustomDevice):
-    """YNDX-00538 dual-channel relay."""
+(
+    QuirkBuilder(YANDEX, "YNDX-00537")
+    .replaces(YandexSwitchClusterRelay, endpoint_id=1)
+    .adds_endpoint(
+        endpoint_id=2,
+        profile_id=zha.PROFILE_ID,
+        device_type=zha.DeviceType.ON_OFF_LIGHT_SWITCH,
+    )
+    .adds(Basic, endpoint_id=2, cluster_type=ClusterType.Server)
+    .adds(Identify, endpoint_id=2, cluster_type=ClusterType.Server)
+    .adds(Identify, endpoint_id=2, cluster_type=ClusterType.Client)
+    .adds(OnOff, endpoint_id=2, cluster_type=ClusterType.Client)
+    .device_automation_triggers(
+        {
+            (SHORT_PRESS, "Button"): {
+                COMMAND: COMMAND_TOGGLE,
+                CLUSTER_ID: OnOff.cluster_id,
+                ENDPOINT_ID: 2,
+            },
+            (DOUBLE_PRESS, "Button"): {
+                COMMAND: COMMAND_ON,
+                CLUSTER_ID: OnOff.cluster_id,
+                ENDPOINT_ID: 2,
+            },
+            (LONG_PRESS, "Button"): {
+                COMMAND: COMMAND_OFF,
+                CLUSTER_ID: OnOff.cluster_id,
+                ENDPOINT_ID: 2,
+            },
+        }
+    )
+    .enum(
+        attribute_name=YandexSwitchClusterRelay.AttributeDefs.power_type.name,
+        enum_class=YandexType_PowerType,
+        cluster_id=YandexSwitchClusterRelay.cluster_id,
+        translation_key="power_type",
+        fallback_name="Power Type",
+    )
+    .enum(
+        attribute_name=YandexSwitchClusterRelay.AttributeDefs.switch_type.name,
+        enum_class=YandexType_SwitchType,
+        cluster_id=YandexSwitchClusterRelay.cluster_id,
+        translation_key="switch_type",
+        fallback_name="Switch Type",
+    )
+    .add_to_registry()
+)
 
-    signature = {
-        MODELS_INFO: [(YANDEX, "YNDX-00538")],
-        ENDPOINTS: {
-            # <SimpleDescriptor endpoint=1 profile=260 device_type=256
-            # device_version=0
-            # input_clusters=[0, 3, 6, 64515]
-            # output_clusters=[25]>
-            1: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zha.DeviceType.ON_OFF_LIGHT,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                    OnOff.cluster_id,
-                    YandexSwitchClusterRelay.cluster_id,
-                ],
-                OUTPUT_CLUSTERS: [Ota.cluster_id],
+(
+    QuirkBuilder(YANDEX, "YNDX-00538")
+    .replaces(YandexSwitchClusterRelay, endpoint_id=1)
+    .replaces(YandexSwitchClusterRelay, endpoint_id=2)
+    .adds_endpoint(
+        endpoint_id=3,
+        profile_id=zha.PROFILE_ID,
+        device_type=zha.DeviceType.ON_OFF_LIGHT_SWITCH,
+    )
+    .adds(Basic, endpoint_id=3, cluster_type=ClusterType.Server)
+    .adds(Identify, endpoint_id=3, cluster_type=ClusterType.Server)
+    .adds(Identify, endpoint_id=3, cluster_type=ClusterType.Client)
+    .adds(OnOff, endpoint_id=3, cluster_type=ClusterType.Client)
+    .adds_endpoint(
+        endpoint_id=4,
+        profile_id=zha.PROFILE_ID,
+        device_type=zha.DeviceType.ON_OFF_LIGHT_SWITCH,
+    )
+    .adds(Basic, endpoint_id=4, cluster_type=ClusterType.Server)
+    .adds(Identify, endpoint_id=4, cluster_type=ClusterType.Server)
+    .adds(Identify, endpoint_id=4, cluster_type=ClusterType.Client)
+    .adds(OnOff, endpoint_id=4, cluster_type=ClusterType.Client)
+    .device_automation_triggers(
+        {
+            (SHORT_PRESS, "Button 1"): {
+                COMMAND: COMMAND_TOGGLE,
+                CLUSTER_ID: OnOff.cluster_id,
+                ENDPOINT_ID: 3,
             },
-            # <SimpleDescriptor endpoint=2 profile=260 device_type=256
-            # device_version=0
-            # input_clusters=[0, 3, 6, 64515]
-            # output_clusters=[]>
-            2: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zha.DeviceType.ON_OFF_LIGHT,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                    OnOff.cluster_id,
-                    YandexSwitchClusterRelay.cluster_id,
-                ],
-                OUTPUT_CLUSTERS: [],
+            (DOUBLE_PRESS, "Button 1"): {
+                COMMAND: COMMAND_ON,
+                CLUSTER_ID: OnOff.cluster_id,
+                ENDPOINT_ID: 3,
             },
-        },
-    }
-
-    replacement = {
-        ENDPOINTS: {
-            1: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zha.DeviceType.ON_OFF_LIGHT,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                    OnOff.cluster_id,
-                    YandexSwitchClusterRelay,
-                ],
-                OUTPUT_CLUSTERS: [Ota.cluster_id],
+            (LONG_PRESS, "Button 1"): {
+                COMMAND: COMMAND_OFF,
+                CLUSTER_ID: OnOff.cluster_id,
+                ENDPOINT_ID: 3,
             },
-            2: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zha.DeviceType.ON_OFF_LIGHT,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                    OnOff.cluster_id,
-                    YandexSwitchClusterRelay,
-                ],
-                OUTPUT_CLUSTERS: [Ota.cluster_id],
+            (SHORT_PRESS, "Button 2"): {
+                COMMAND: COMMAND_TOGGLE,
+                CLUSTER_ID: OnOff.cluster_id,
+                ENDPOINT_ID: 4,
             },
-            # Button 1
-            3: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zha.DeviceType.ON_OFF_LIGHT_SWITCH,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                ],
-                OUTPUT_CLUSTERS: [Identify.cluster_id, OnOff.cluster_id],
+            (DOUBLE_PRESS, "Button 2"): {
+                COMMAND: COMMAND_ON,
+                CLUSTER_ID: OnOff.cluster_id,
+                ENDPOINT_ID: 4,
             },
-            # Button 2
-            4: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zha.DeviceType.ON_OFF_LIGHT_SWITCH,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                ],
-                OUTPUT_CLUSTERS: [Identify.cluster_id, OnOff.cluster_id],
+            (LONG_PRESS, "Button 2"): {
+                COMMAND: COMMAND_OFF,
+                CLUSTER_ID: OnOff.cluster_id,
+                ENDPOINT_ID: 4,
             },
-        },
-    }
-
-    device_automation_triggers = {
-        (SHORT_PRESS, "Button 1"): {
-            COMMAND: COMMAND_TOGGLE,
-            CLUSTER_ID: OnOff.cluster_id,
-            ENDPOINT_ID: 3,
-        },
-        (DOUBLE_PRESS, "Button 1"): {
-            COMMAND: COMMAND_ON,
-            CLUSTER_ID: OnOff.cluster_id,
-            ENDPOINT_ID: 3,
-        },
-        (LONG_PRESS, "Button 1"): {
-            COMMAND: COMMAND_OFF,
-            CLUSTER_ID: OnOff.cluster_id,
-            ENDPOINT_ID: 3,
-        },
-        (SHORT_PRESS, "Button 2"): {
-            COMMAND: COMMAND_TOGGLE,
-            CLUSTER_ID: OnOff.cluster_id,
-            ENDPOINT_ID: 4,
-        },
-        (DOUBLE_PRESS, "Button 2"): {
-            COMMAND: COMMAND_ON,
-            CLUSTER_ID: OnOff.cluster_id,
-            ENDPOINT_ID: 4,
-        },
-        (LONG_PRESS, "Button 2"): {
-            COMMAND: COMMAND_OFF,
-            CLUSTER_ID: OnOff.cluster_id,
-            ENDPOINT_ID: 4,
-        },
-    }
+        }
+    )
+    .enum(
+        attribute_name=YandexSwitchClusterRelay.AttributeDefs.power_type.name,
+        enum_class=YandexType_PowerType,
+        cluster_id=YandexSwitchClusterRelay.cluster_id,
+        translation_key="power_type",
+        fallback_name="Power Type",
+    )
+    .enum(
+        attribute_name=YandexSwitchClusterRelay.AttributeDefs.switch_type.name,
+        enum_class=YandexType_SwitchType,
+        cluster_id=YandexSwitchClusterRelay.cluster_id,
+        endpoint_id=1,
+        translation_key="switch_type",
+        fallback_name="Switch Type",
+    )
+    .enum(
+        attribute_name=YandexSwitchClusterRelay.AttributeDefs.switch_type.name,
+        enum_class=YandexType_SwitchType,
+        cluster_id=YandexSwitchClusterRelay.cluster_id,
+        endpoint_id=2,
+        translation_key="switch_type",
+        fallback_name="Switch Type",
+    )
+    .switch(
+        attribute_name=YandexSwitchClusterRelay.AttributeDefs.interlock.name,
+        cluster_id=YandexSwitchClusterRelay.cluster_id,
+        translation_key="interlock",
+        fallback_name="Interlock",
+        off_value=YandexType_Interlock.Disabled,
+        on_value=YandexType_Interlock.Enabled,
+    )
+    .add_to_registry()
+)
