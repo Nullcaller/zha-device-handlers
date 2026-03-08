@@ -49,3 +49,10 @@ class YandexType_Interlock(t.basic.enum8):
 
     Disabled = 0
     Enabled = 1
+
+
+class YandexType_ButtonMode(t.enum8):
+    """Dimmer only: button presses interpretation."""
+
+    General = 0x00
+    Alternative = 0x01
