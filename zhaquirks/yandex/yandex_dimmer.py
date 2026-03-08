@@ -1,19 +1,9 @@
 """Support for YNDX-00530 dimmer."""
 
-from typing import Final
+from typing import Any, Final
 
-from zigpy.profiles import zgp, zha
-from zigpy.quirks import CustomCluster, CustomDevice
-from zigpy.zcl.clusters.general import (
-    Basic,
-    GreenPowerProxy,
-    Groups,
-    Identify,
-    LevelControl,
-    OnOff,
-    Ota,
-    Scenes,
-)
+from zigpy.quirks import CustomCluster
+from zigpy.quirks.v2 import QuirkBuilder
 from zigpy.zcl.foundation import (
     BaseAttributeDefs,
     BaseCommandDefs,
@@ -22,14 +12,6 @@ from zigpy.zcl.foundation import (
     ZCLCommandDef,
 )
 
-from zhaquirks.const import (
-    DEVICE_TYPE,
-    ENDPOINTS,
-    INPUT_CLUSTERS,
-    MODELS_INFO,
-    OUTPUT_CLUSTERS,
-    PROFILE_ID,
-)
 from zhaquirks.yandex import (
     YANDEX,
     YANDEX_MANUFACTURER_CODE_1,
@@ -68,65 +50,44 @@ class YandexSwitchClusterDimmer(CustomCluster):
             is_manufacturer_specific=True,
         )
 
+    async def write_attributes(
+        self, attributes: dict[str | int, Any], manufacturer: int | None = None
+    ) -> list:
+        """Write attributes using commands because manufacturer-specific attribute writing is unsupported by Yandex devices."""
 
-class YandexDimmer(CustomDevice):
-    """YNDX-00530 dimmer."""
+        result = []
+        remaining_attributes = attributes.copy()
 
-    signature = {
-        MODELS_INFO: [(YANDEX, "YNDX-00530")],
-        ENDPOINTS: {
-            # <SimpleDescriptor endpoint=1 profile=260 device_type=257
-            # device_version=0
-            # input_clusters=[0, 3, 4, 6, 8, 64515]
-            # output_clusters=[25]>
-            1: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zha.DeviceType.DIMMABLE_LIGHT,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                    Groups.cluster_id,
-                    Scenes.cluster_id,
-                    OnOff.cluster_id,
-                    LevelControl.cluster_id,
-                    YandexSwitchClusterDimmer.cluster_id,
-                ],
-                OUTPUT_CLUSTERS: [Ota.cluster_id],
-            },
-            # <SimpleDescriptor endpoint=242 profile=41440 device_type=97
-            # device_version=0
-            # input_clusters=[]
-            # output_clusters=[33]>
-            242: {
-                PROFILE_ID: zgp.PROFILE_ID,
-                DEVICE_TYPE: zgp.DeviceType.PROXY_BASIC,
-                INPUT_CLUSTERS: [],
-                OUTPUT_CLUSTERS: [GreenPowerProxy.cluster_id],
-            },
-        },
-    }
+        if "button_mode" in attributes:
+            remaining_attributes.pop("button_mode")
+            result += await self.command(0x08, attributes.get("button_mode"))
+        if 0x0008 in attributes:
+            remaining_attributes.pop(0x0008)
+            result += await self.command(0x08, attributes.get(0x0008))
 
-    replacement = {
-        ENDPOINTS: {
-            1: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zha.DeviceType.DIMMABLE_LIGHT,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                    Groups.cluster_id,
-                    Scenes.cluster_id,
-                    OnOff.cluster_id,
-                    LevelControl.cluster_id,
-                    YandexSwitchClusterDimmer,
-                ],
-                OUTPUT_CLUSTERS: [Ota.cluster_id],
-            },
-            242: {
-                PROFILE_ID: zha.PROFILE_ID,
-                DEVICE_TYPE: zgp.DeviceType.PROXY_BASIC,
-                INPUT_CLUSTERS: [],
-                OUTPUT_CLUSTERS: [GreenPowerProxy.cluster_id],
-            },
-        },
-    }
+        if remaining_attributes:
+            result += await super().write_attributes(remaining_attributes, manufacturer)
+
+        return result
+
+
+(
+    QuirkBuilder(YANDEX, "YNDX-00530")
+    .replaces(YandexSwitchClusterDimmer)
+    .enum(
+        attribute_name=YandexSwitchClusterDimmer.AttributeDefs.button_mode.name,
+        enum_class=YandexType_ButtonMode,
+        cluster_id=YandexSwitchClusterDimmer.cluster_id,
+        translation_key="button_mode",
+        fallback_name="Button Mode",
+    )
+    .switch(
+        attribute_name=YandexSwitchClusterDimmer.AttributeDefs.led_indicator.name,
+        cluster_id=YandexSwitchClusterDimmer.cluster_id,
+        translation_key="led_indicator",
+        fallback_name="LED Indicator",
+        off_value=YandexType_LedIndicator.Disabled,
+        on_value=YandexType_LedIndicator.Enabled,
+    )
+    .add_to_registry()
+)
