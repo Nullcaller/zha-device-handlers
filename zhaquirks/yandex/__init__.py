@@ -7,6 +7,7 @@ import zigpy.types as t
 
 YANDEX = "Yandex"
 YANDEX_MANUFACTURER_CODE_1 = 0x140A
+YANDEX_MANUFACTURER_CODE_2 = 0x132F
 
 
 ### TYPES ###
@@ -56,3 +57,11 @@ class YandexType_ButtonMode(t.enum8):
 
     General = 0x00
     Alternative = 0x01
+
+
+class YandexType_VelocityLift(t.enum16):
+    """Curtain motor: velocity options."""
+
+    Slow = 6
+    Normal = 9
+    Fast = 12
