@@ -83,6 +83,7 @@ class YandexWindowCovering(CustomCluster, WindowCovering):
 
 (
     QuirkBuilder(YANDEX, "YNDX-00591")
+    .replaces(YandexWindowCovering)
     .applies_to(YANDEX, "YNDX-00591")
     .applies_to(YANDEX, "YNDX-00592")
     .enum(
