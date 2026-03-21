@@ -97,9 +97,10 @@ class YandexWindowCovering(CustomCluster, WindowCovering):
         attribute_name=YandexWindowCovering.AttributeDefs.max_position.name,
         cluster_id=YandexWindowCovering.cluster_id,
         min_value=0,
-        max_value=255,
+        max_value=100,
         step=1,
         device_class=NumberDeviceClass.DISTANCE,
+        unit="%",
         translation_key="max_position",
         fallback_name="Maximum Position",
     )
@@ -107,9 +108,10 @@ class YandexWindowCovering(CustomCluster, WindowCovering):
         attribute_name=YandexWindowCovering.AttributeDefs.min_position.name,
         cluster_id=YandexWindowCovering.cluster_id,
         min_value=0,
-        max_value=255,
+        max_value=100,
         step=1,
         device_class=NumberDeviceClass.DISTANCE,
+        unit="%",
         translation_key="min_position",
         fallback_name="Minimum Position",
     )
